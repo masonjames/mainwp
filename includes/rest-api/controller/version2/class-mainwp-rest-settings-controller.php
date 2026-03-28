@@ -8,6 +8,7 @@
  */
 
 use MainWP\Dashboard\MainWP_DB;
+use MainWP\Dashboard\MainWP_Cache_Warm_Helper;
 use MainWP\Dashboard\MainWP_Utility;
 use MainWP\Dashboard\MainWP_Settings;
 use MainWP\Dashboard\MainWP_Notification_Settings;
@@ -2134,6 +2135,7 @@ class MainWP_Rest_Settings_Controller extends MainWP_REST_Controller { //phpcs:i
 
         MainWP_Utility::update_option( 'mainwp_extensions', $new_extensions );
         MainWP_Utility::update_option( 'mainwp_extensions_all_activation_cached', '' );
+        MainWP_Cache_Warm_Helper::invalidate_manage_pages( array( 'Extensions' ) );
 
         return rest_ensure_response(
             array(

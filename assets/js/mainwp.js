@@ -5302,9 +5302,11 @@ let get_local_date_string = function () {
 }
 
 function mainwp_forceReload(targetUrl) {
-    const url = targetUrl || globalThis.location.href;
-    // Navigate to URL (force reload from server)
-    globalThis.location.href = url;
+    const rawUrl = targetUrl || globalThis.location.href;
+    const url = new URL(rawUrl, globalThis.location.href);
+    url.searchParams.set('_mainwp_r', Date.now().toString());
+    // Navigate to URL with a cache-busting param so stateful admin views always fetch fresh HTML.
+    globalThis.location.href = url.toString();
 }
 
 class TablePersistentState {

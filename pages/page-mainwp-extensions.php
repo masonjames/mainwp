@@ -61,27 +61,18 @@ class MainWP_Extensions { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.C
     }
 
     /**
-     * Method init_menu()
+     * Refresh the registered extensions registry.
      *
-     * Instantiate Extensions Menu.
+     * @return array Normalized registered extensions.
      *
      * @uses \MainWP\Dashboard\MainWP_Api_Manager::get_activation_info()
-     * @uses \MainWP\Dashboard\MainWP_Extensions_View::init_menu()
-     * @uses \MainWP\Dashboard\MainWP_Menu::is_disable_menu_item()
-     * @uses \MainWP\Dashboard\MainWP_Extensions_Handler::polish_ext_name()
-     * @uses \MainWP\Dashboard\MainWP_Extensions_Handler::added_on_menu()
-     * @uses \MainWP\Dashboard\MainWP_Extensions_Handler::get_extensions()
-     * @uses  \MainWP\Dashboard\MainWP_Utility::update_option()
+     * @uses \MainWP\Dashboard\MainWP_Utility::update_option()
      */
-    public static function init_menu() { // phpcs:ignore -- NOSONAR - complex function. Current complexity is the only way to achieve desired results, pull request solutions appreciated.
-        if ( ! MainWP_Menu::is_disable_menu_item( 2, 'Extensions' ) ) {
-            MainWP_Extensions_View::init_menu();
-        }
-
+    public static function refresh_registry() { // phpcs:ignore -- NOSONAR - complex function. Current complexity is the only way to achieve desired results, pull request solutions appreciated.
         $save_extensions = array();
 
         /**
-         * Get extensions
+         * Get extensions.
          *
          * Adds extension to MainWP system.
          *
@@ -99,15 +90,13 @@ class MainWP_Extensions { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.C
             $activations_cached = array();
         }
 
-        $is_cached = ! empty( $activations_cached ) ? true : false;
+        $is_cached = ! empty( $activations_cached );
 
         $extraHeaders = array(
             'IconURI'          => 'Icon URI',
             'SupportForumURI'  => 'Support Forum URI',
             'DocumentationURI' => 'Documentation URI',
         );
-
-        $extsPages = array();
 
         $compatible_v4_checks = array(
             'advanced-uptime-monitor-extension/advanced-uptime-monitor-extension.php',
@@ -154,11 +143,11 @@ class MainWP_Extensions { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.C
             $plugin_data = get_plugin_data( $extension['plugin'], true, false );
             $file_data   = get_file_data( $extension['plugin'], $extraHeaders );
 
-            if ( ! isset( $plugin_data['Name'] ) || ( '' === $plugin_data['Name'] ) ) {
+            if ( ! isset( $plugin_data['Name'] ) || '' === $plugin_data['Name'] ) {
                 continue;
             }
 
-            if ( in_array( $slug, $compatible_v4_checks ) ) {
+            if ( in_array( $slug, $compatible_v4_checks, true ) ) {
                 $check_minver = '3.99999';
                 if ( 'advanced-uptime-monitor-extension/advanced-uptime-monitor-extension.php' === $slug ) {
                     $check_minver = '4.6.2';
@@ -188,7 +177,6 @@ class MainWP_Extensions { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.C
             $extension['page']             = 'Extensions-' . str_replace( ' ', '-', ucwords( str_replace( '-', ' ', dirname( $slug ) ) ) );
 
             if ( isset( $extension['apiManager'] ) && $extension['apiManager'] ) {
-
                 $api_slug = dirname( $slug );
 
                 if ( $is_cached ) {
@@ -217,31 +205,12 @@ class MainWP_Extensions { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.C
 
             $ext_slug = dirname( $slug );
             if ( isset( $all_available_extensions[ $ext_slug ] ) ) {
-                $extension['type'] = $all_available_extensions[ $ext_slug ]['type']; // to fix.
+                $extension['type'] = $all_available_extensions[ $ext_slug ]['type'];
+            } elseif ( ! isset( $extension['type'] ) ) {
+                $extension['type'] = 'free';
             }
 
             $save_extensions[] = $extension;
-            if ( \mainwp_current_user_can( 'extension', dirname( $slug ) ) ) {
-                $callback  = isset( $extension['callback'] ) ? $extension['callback'] : '';
-                $menu_name = MainWP_Extensions_Handler::polish_ext_name( $extension );
-                if ( MainWP_Extensions_Handler::added_on_menu( $slug ) ) {
-                    $_page = add_submenu_page( 'mainwp_tab', $extension['name'], $menu_name, 'read', $extension['page'], $callback );
-                } else {
-                    $_page = add_submenu_page( 'mainwp_tab', $extension['name'], '<div class="mainwp-hidden">' . $extension['name'] . '</div>', 'read', $extension['page'], $callback );
-                }
-
-                if ( isset( $extension['on_load_callback'] ) && ! empty( $extension['on_load_callback'] ) ) {
-                    add_action( 'load-' . $_page, $extension['on_load_callback'] );
-                }
-
-                $_item = array(
-                    'title' => $menu_name,
-                    'slug'  => $extension['page'],
-                    'href'  => isset( $extension['href'] ) ? $extension['href'] : '',
-                );
-
-                $extsPages[] = $_item;
-            }
         }
 
         if ( ! empty( $deactivated_imcompatible ) ) {
@@ -249,11 +218,72 @@ class MainWP_Extensions { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.C
         }
 
         MainWP_Utility::update_option( 'mainwp_extensions', $save_extensions );
+
+        $manage_extensions_catalog = get_option( 'mainwp_extensions_manage_catalog', array() );
+        if ( ! is_array( $manage_extensions_catalog ) ) {
+            $manage_extensions_catalog = array();
+        }
+        foreach ( $save_extensions as $saved_extension ) {
+            $catalog_item = MainWP_Extensions_View::normalize_registered_extension_catalog_item( $saved_extension );
+            if ( empty( $catalog_item ) || empty( $catalog_item['slug'] ) ) {
+                continue;
+            }
+            $manage_extensions_catalog[ $catalog_item['slug'] ] = $catalog_item;
+        }
+        MainWP_Utility::update_option( 'mainwp_extensions_manage_catalog', $manage_extensions_catalog );
+
         MainWP_Extensions_Handler::get_extensions( true ); // forced reload.
 
         if ( ! $is_cached ) {
             update_option( 'mainwp_extensions_all_activation_cached', $activations_cached );
         }
+
+        return $save_extensions;
+    }
+
+    /**
+     * Method init_menu()
+     *
+     * Instantiate Extensions Menu.
+     *
+     * @uses \MainWP\Dashboard\MainWP_Extensions_View::init_menu()
+     * @uses \MainWP\Dashboard\MainWP_Menu::is_disable_menu_item()
+     * @uses \MainWP\Dashboard\MainWP_Extensions_Handler::polish_ext_name()
+     * @uses \MainWP\Dashboard\MainWP_Extensions_Handler::added_on_menu()
+     */
+    public static function init_menu() {
+        if ( ! MainWP_Menu::is_disable_menu_item( 2, 'Extensions' ) ) {
+            MainWP_Extensions_View::init_menu();
+        }
+
+        $registered_extensions = static::refresh_registry();
+        $extsPages             = array();
+
+        foreach ( $registered_extensions as $extension ) {
+            $slug = isset( $extension['slug'] ) ? $extension['slug'] : '';
+            if ( empty( $slug ) || ! \mainwp_current_user_can( 'extension', dirname( $slug ) ) ) {
+                continue;
+            }
+
+            $callback  = isset( $extension['callback'] ) ? $extension['callback'] : '';
+            $menu_name = MainWP_Extensions_Handler::polish_ext_name( $extension );
+            if ( MainWP_Extensions_Handler::added_on_menu( $slug ) ) {
+                $_page = add_submenu_page( 'mainwp_tab', $extension['name'], $menu_name, 'read', $extension['page'], $callback );
+            } else {
+                $_page = add_submenu_page( 'mainwp_tab', $extension['name'], '<div class="mainwp-hidden">' . $extension['name'] . '</div>', 'read', $extension['page'], $callback );
+            }
+
+            if ( isset( $extension['on_load_callback'] ) && ! empty( $extension['on_load_callback'] ) ) {
+                add_action( 'load-' . $_page, $extension['on_load_callback'] );
+            }
+
+            $extsPages[] = array(
+                'title' => $menu_name,
+                'slug'  => $extension['page'],
+                'href'  => isset( $extension['href'] ) ? $extension['href'] : '',
+            );
+        }
+
         static::init_left_menu( $extsPages );
     }
 

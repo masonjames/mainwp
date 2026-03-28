@@ -134,6 +134,7 @@ class MainWP_Settings { // phpcs:ignore Generic.Classes.OpeningBraceSameLine.Con
 
             MainWP_Utility::update_option( 'mainwp_extensions', $new_extensions );
             update_option( 'mainwp_extensions_all_activation_cached', '' );
+            MainWP_Cache_Warm_Helper::invalidate_manage_pages( array( 'Extensions' ) );
             wp_safe_redirect( esc_url( admin_url( 'admin.php?page=MainWPTools' ) ) );
             die();
         }

@@ -120,7 +120,7 @@ jQuery(document).on('click', '.mainwp-extensions-add-menu', function () {
 
     jQuery.post(ajaxurl, data, function (response) {
         if (response.result == 'SUCCESS')
-            location.reload();
+            mainwp_forceReload('admin.php?page=Extensions');
         else if (response.error) {
             alert(response.error);
         }
@@ -138,7 +138,7 @@ jQuery(document).on('click', '.mainwp-extensions-remove-menu', function () {
 
     jQuery.post(ajaxurl, data, function (response) {
         if (response.result == 'SUCCESS')
-            location.reload();
+            mainwp_forceReload('admin.php?page=Extensions');
     }, 'json');
 
     return false;
@@ -537,6 +537,13 @@ function mainwp_extensions_savelogin(retring, autoTriggerInstall) {
 
         if (undefError) {
             statusEl.find('.text').html(__('Undefined error. Please try again.'));
+        }
+
+        if (isSuccess && !autoTriggerInstall) {
+            setTimeout(function () {
+                mainwp_forceReload('admin.php?page=Extensions');
+            }, 1000);
+            return false;
         }
 
         if (!autoTriggerInstall || response.error || undefError) {

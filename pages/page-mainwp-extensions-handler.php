@@ -187,8 +187,13 @@ class MainWP_Extensions_Handler { // phpcs:ignore Generic.Classes.OpeningBraceSa
     public static function get_extensions_disabled( $compatible_api_response = false ) { // phpcs:ignore -- NOSONAR - complex.
         if ( ! isset( static::$extensions_disabled ) || $compatible_api_response ) {
             static::$extensions_disabled = array();
-            $all_available_extensions    = MainWP_Extensions_View::get_available_extensions( 'all' );
+            $all_available_extensions    = MainWP_Extensions_View::get_manage_extensions_catalog();
             $all_plugins                 = get_plugins();
+            $extra_headers               = array(
+                'IconURI'          => 'Icon URI',
+                'SupportForumURI'  => 'Support Forum URI',
+                'DocumentationURI' => 'Documentation URI',
+            );
 
             $exts_disabled = array();
 
@@ -197,47 +202,59 @@ class MainWP_Extensions_Handler { // phpcs:ignore Generic.Classes.OpeningBraceSa
                     if ( is_plugin_active( $plugin ) ) {
                         continue;
                     }
+
                     $slug = dirname( $plugin );
-                    if ( isset( $all_available_extensions[ $slug ] ) ) {
+                    if ( ! isset( $all_available_extensions[ $slug ] ) ) {
+                        continue;
+                    }
 
-                        $ext = $all_available_extensions[ $slug ];
+                    $ext       = $all_available_extensions[ $slug ];
+                    $file_path = WP_PLUGIN_DIR . '/' . $plugin;
+                    $file_data = file_exists( $file_path ) ? get_file_data( $file_path, $extra_headers ) : array();
+                    $name      = isset( $plugin_data['Name'] ) && '' !== $plugin_data['Name'] ? $plugin_data['Name'] : ( isset( $ext['title'] ) ? $ext['title'] : $slug );
 
-                        $extension = array();
+                    $extension = array();
 
-                        $extension['name']             = $plugin_data['Name'];
-                        $extension['slug']             = $plugin;
-                        $extension['version']          = $plugin_data['Version'];
-                        $extension['description']      = $plugin_data['Description'];
-                        $extension['author']           = $plugin_data['Author'];
-                        $extension['img']              = isset( $ext['img'] ) ? $ext['img'] : '';
-                        $extension['iconURI']          = isset( $plugin_data['IconURI'] ) ? $plugin_data['IconURI'] : '';
-                        $extension['SupportForumURI']  = '';
-                        $extension['DocumentationURI'] = '';
-                        $extension['page']             = 'Extensions-' . str_replace( ' ', '-', ucwords( str_replace( '-', ' ', dirname( $slug ) ) ) );
+                    $extension['name']             = $name;
+                    $extension['slug']             = $plugin;
+                    $extension['version']          = isset( $plugin_data['Version'] ) ? $plugin_data['Version'] : '';
+                    $extension['description']      = isset( $plugin_data['Description'] ) ? $plugin_data['Description'] : ( isset( $ext['desc'] ) ? $ext['desc'] : '' );
+                    $extension['author']           = isset( $plugin_data['Author'] ) ? $plugin_data['Author'] : '';
+                    $extension['img']              = isset( $ext['img'] ) ? $ext['img'] : '';
+                    $extension['iconURI']          = isset( $file_data['IconURI'] ) ? $file_data['IconURI'] : '';
+                    $extension['SupportForumURI']  = isset( $file_data['SupportForumURI'] ) ? $file_data['SupportForumURI'] : '';
+                    $extension['DocumentationURI'] = isset( $file_data['DocumentationURI'] ) ? $file_data['DocumentationURI'] : '';
+                    $extension['page']             = 'Extensions-' . str_replace( ' ', '-', ucwords( str_replace( '-', ' ', $slug ) ) );
 
-                        $extension['api_key']             = '';
-                        $extension['activated_key']       = 'Deactivated';
-                        $extension['deactivate_checkbox'] = 'off';
-                        $extension['product_id']          = $ext['product_id'];
-                        $extension['instance_id']         = '';
-                        $extension['software_version']    = '';
-                        $extension['product_item_id']     = '';
-                        $extension['type']                = $ext['type'];
+                    $extension['api_key']             = '';
+                    $extension['activated_key']       = 'Deactivated';
+                    $extension['deactivate_checkbox'] = 'off';
+                    $extension['product_id']          = isset( $ext['product_id'] ) ? $ext['product_id'] : $name;
+                    $extension['instance_id']         = '';
+                    $extension['software_version']    = '';
+                    $extension['product_item_id']     = isset( $ext['product_item_id'] ) ? $ext['product_item_id'] : '';
+                    $extension['type']                = isset( $ext['type'] ) ? $ext['type'] : 'free';
+                    $extension['model']               = isset( $ext['model'] ) ? $ext['model'] : 'extension';
+                    $extension['privacy']             = isset( $ext['privacy'] ) ? $ext['privacy'] : 0;
+                    $extension['integration']         = isset( $ext['integration'] ) ? $ext['integration'] : '';
+                    $extension['integration_url']     = isset( $ext['integration_url'] ) ? $ext['integration_url'] : '';
+                    $extension['integration_owner']   = isset( $ext['integration_owner'] ) ? $ext['integration_owner'] : '';
+                    $extension['integration_owner_pp'] = isset( $ext['integration_owner_pp'] ) ? $ext['integration_owner_pp'] : '';
+                    $extension['apiManager']          = isset( $ext['apiManager'] ) ? $ext['apiManager'] : false;
 
-                        if ( $compatible_api_response ) {
-                            $exts_disabled[ $ext['product_id'] ] = $extension;
-                        } else {
-                            $exts_disabled[] = $extension;
-                        }
+                    if ( $compatible_api_response ) {
+                        $exts_disabled[ $extension['product_id'] ] = $extension;
+                    } else {
+                        $exts_disabled[] = $extension;
                     }
                 }
             }
 
             if ( $compatible_api_response ) {
                 return $exts_disabled;
-            } else {
-                static::$extensions_disabled = $exts_disabled;
             }
+
+            static::$extensions_disabled = $exts_disabled;
         }
         return static::$extensions_disabled;
     }

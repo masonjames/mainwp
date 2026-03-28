@@ -148,16 +148,17 @@ class MainWP_Extensions_View { // phpcs:ignore Generic.Classes.OpeningBraceSameL
      * @return void
      */
     public static function render() { // phpcs:ignore -- NOSONAR -Current complexity is the only way to achieve desired results, pull request solutions appreciated.
-        $mainwp_api_key = false;
-        if ( get_option( 'mainwp_extensions_api_save_login' ) ) {
-            $mainwp_api_key = MainWP_Api_Manager_Key::instance()->get_decrypt_master_api_key();
+        $mainwp_api_key = MainWP_Api_Manager_Key::instance()->get_decrypt_master_api_key();
+
+        if ( empty( $mainwp_api_key ) ) {
+            $mainwp_api_key = false;
         }
 
         if ( 1 === (int) get_option( 'mainwp_api_sslVerifyCertificate' ) ) {
             update_option( 'mainwp_api_sslVerifyCertificate', 0 );
         }
 
-        $all_available_extensions = static::get_available_extensions( 'all' );
+        $all_available_extensions = static::get_manage_extensions_catalog();
 
         $extensions_disabled = MainWP_Extensions_Handler::get_extensions_disabled();
 
@@ -323,7 +324,7 @@ class MainWP_Extensions_View { // phpcs:ignore Generic.Classes.OpeningBraceSameL
             <?php static::render_purchase_notice(); ?>
 
             <div id="mainwp-extensions-privacy-info">
-                <?php $priv_extensions = static::get_available_extensions( 'all' ); ?>
+                <?php $priv_extensions = static::get_manage_extensions_catalog(); ?>
                 <?php
                 foreach ( $priv_extensions as $priv_extension ) {
                     $item_slug = MainWP_Utility::get_dir_slug( $priv_extension['slug'] );
@@ -710,7 +711,7 @@ class MainWP_Extensions_View { // phpcs:ignore Generic.Classes.OpeningBraceSameL
             $queue_status = 'queue';
         }
 
-        $all_available_extensions = static::get_available_extensions( 'all' );
+        $all_available_extensions = static::get_manage_extensions_catalog();
         $extensions_data          = isset( $all_available_extensions[ dirname( $extension['slug'] ) ] ) ? $all_available_extensions[ dirname( $extension['slug'] ) ] : array();
 
         $privacy_class = '';
@@ -989,7 +990,9 @@ class MainWP_Extensions_View { // phpcs:ignore Generic.Classes.OpeningBraceSameL
                 </div>
                 <div class="right aligned middle aligned column">
                     <div id="mainwp-manage-add-ons-buttons">
+                        <?php if ( \mainwp_current_user_can( 'dashboard', 'bulk_install_and_activate_extensions' ) ) { ?>
                         <a href="javascript:void(0);" class="ui grey basic tiny button" id="mainwp-extensions-bulkinstall"><i class="download icon"></i> <?php esc_html_e( 'Install Add-ons', 'mainwp' ); ?></a>
+                        <?php } ?>
                         <a href="javascript:void(0);" class="ui grey basic tiny button" id="mainwp-extensions-grabkeys"><i class="unlock icon"></i> <?php esc_html_e( 'Activate Add-ons', 'mainwp' ); ?></a>
                         <a href="javascript:void(0);" class="ui green basic tiny button" id="mainwp-extensions-manage-toggle-on"><i class="key icon"></i> <?php echo empty( $mainwp_api_key ) ? esc_html__( 'Add License Key', 'mainwp' ) : esc_html__( 'Manage License', 'mainwp' ); ?></a>
                     </div>
@@ -1049,6 +1052,100 @@ class MainWP_Extensions_View { // phpcs:ignore Generic.Classes.OpeningBraceSameL
             }
         }
         MainWP_Utility::array_sort_existed_keys( $exts, '_polish_name' ); //phpcs:ignore Squiz.PHP.CommentedOutCode.Found -- 4 => 'leftsub_order'.
+    }
+
+    /**
+     * Get the catalog used by the manage add-ons screen.
+     *
+     * Merges the static marketplace catalog with locally registered extensions so
+     * active and inactive custom/local add-ons remain visible in the manage UI.
+     *
+     * @return array
+     */
+    public static function get_manage_extensions_catalog() {
+        $all_extensions        = static::get_available_extensions( 'all' );
+        $registered_extensions = get_option( 'mainwp_extensions_manage_catalog', array() );
+
+        if ( ! is_array( $registered_extensions ) || empty( $registered_extensions ) ) {
+            $registered_extensions = get_option( 'mainwp_extensions', array() );
+        }
+
+        if ( ! is_array( $registered_extensions ) ) {
+            return $all_extensions;
+        }
+
+        foreach ( $registered_extensions as $extension ) {
+            $local_extension = static::normalize_registered_extension_catalog_item( $extension );
+            if ( empty( $local_extension ) || empty( $local_extension['slug'] ) ) {
+                continue;
+            }
+
+            $slug = MainWP_Utility::get_dir_slug( $local_extension['slug'] );
+            if ( isset( $all_extensions[ $slug ] ) ) {
+                $all_extensions[ $slug ] = array_merge( $local_extension, $all_extensions[ $slug ] );
+            } else {
+                $all_extensions[ $slug ] = $local_extension;
+            }
+        }
+
+        return $all_extensions;
+    }
+
+    /**
+     * Normalize a registered extension into catalog-like data.
+     *
+     * @param array $extension Registered extension payload.
+     * @return array
+     */
+    public static function normalize_registered_extension_catalog_item( $extension ) {
+        if ( ! is_array( $extension ) || empty( $extension['slug'] ) ) {
+            return array();
+        }
+
+        $slug  = MainWP_Utility::get_dir_slug( $extension['slug'] );
+        $name  = isset( $extension['name'] ) && '' !== $extension['name'] ? $extension['name'] : ( isset( $extension['title'] ) && '' !== $extension['title'] ? $extension['title'] : $slug );
+        $type  = isset( $extension['type'] ) && '' !== $extension['type'] ? $extension['type'] : 'free';
+        $model = isset( $extension['model'] ) && '' !== $extension['model'] ? $extension['model'] : 'extension';
+        if ( 'extension' === $model && ! empty( $extension['integration'] ) ) {
+            $model = 'integration';
+        }
+
+        $group = array();
+        if ( isset( $extension['group'] ) && is_array( $extension['group'] ) ) {
+            $group = $extension['group'];
+        }
+
+        $img = '';
+        if ( isset( $extension['icon'] ) && ! empty( $extension['icon'] ) ) {
+            $img = $extension['icon'];
+        } elseif ( isset( $extension['iconURI'] ) && ! empty( $extension['iconURI'] ) ) {
+            $img = MainWP_Utility::remove_http_prefix( $extension['iconURI'] );
+        } elseif ( isset( $extension['img'] ) && ! empty( $extension['img'] ) ) {
+            $img = $extension['img'];
+        }
+
+        return array(
+            'slug'                   => $slug,
+            'title'                  => $name,
+            'desc'                   => isset( $extension['description'] ) ? $extension['description'] : ( isset( $extension['desc'] ) ? $extension['desc'] : '' ),
+            'link'                   => isset( $extension['DocumentationURI'] ) ? $extension['DocumentationURI'] : ( isset( $extension['link'] ) ? $extension['link'] : '' ),
+            'img'                    => $img,
+            'product_id'             => ! empty( $extension['product_id'] ) ? $extension['product_id'] : $name,
+            'product_item_id'        => isset( $extension['product_item_id'] ) ? $extension['product_item_id'] : 0,
+            'type'                   => $type,
+            'model'                  => $model,
+            'group'                  => $group,
+            'privacy'                => isset( $extension['privacy'] ) ? (int) $extension['privacy'] : 0,
+            'integration'            => isset( $extension['integration'] ) ? $extension['integration'] : '',
+            'integration_url'        => isset( $extension['integration_url'] ) ? $extension['integration_url'] : '',
+            'integration_owner'      => isset( $extension['integration_owner'] ) ? $extension['integration_owner'] : '',
+            'integration_owner_pp'   => isset( $extension['integration_owner_pp'] ) ? $extension['integration_owner_pp'] : '',
+            'integration_1'          => isset( $extension['integration_1'] ) ? $extension['integration_1'] : '',
+            'integration_url_1'      => isset( $extension['integration_url_1'] ) ? $extension['integration_url_1'] : '',
+            'integration_owner_1'    => isset( $extension['integration_owner_1'] ) ? $extension['integration_owner_1'] : '',
+            'integration_owner_pp_1' => isset( $extension['integration_owner_pp_1'] ) ? $extension['integration_owner_pp_1'] : '',
+            'apiManager'             => isset( $extension['apiManager'] ) ? $extension['apiManager'] : false,
+        );
     }
 
     /**

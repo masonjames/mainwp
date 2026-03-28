@@ -59,13 +59,16 @@ class MainWP_Post_Extension_Handler extends MainWP_Post_Base_Handler { // phpcs:
 
         $this->add_action( 'mainwp_extension_plugin_action', array( &$this, 'ajax_extension_plugin_action' ) );
 
-        if ( \mainwp_current_user_can( 'dashboard', 'bulk_install_and_activate_extensions' ) ) {
+        if ( \mainwp_current_user_can( 'dashboard', 'manage_extensions' ) ) {
             $this->add_action( 'mainwp_extension_grabapikey', array( &$this, 'grab_extension_api_key' ) );
             $this->add_action( 'mainwp_extension_saveextensionapilogin', array( &$this, 'save_extensions_api_login' ) );
             $this->add_action( 'mainwp_extension_getpurchased', array( MainWP_Extensions::get_class_name(), 'ajax_get_purchased_extensions' ) );
+            $this->add_action( 'mainwp_extension_apisslverifycertificate', array( &$this, 'save_api_ssl_verify' ) );
+        }
+
+        if ( \mainwp_current_user_can( 'dashboard', 'bulk_install_and_activate_extensions' ) ) {
             $this->add_action( 'mainwp_extension_downloadandinstall', array( &$this, 'download_and_install' ) );
             $this->add_action( 'mainwp_extension_bulk_activate', array( &$this, 'bulk_activate' ) );
-            $this->add_action( 'mainwp_extension_apisslverifycertificate', array( &$this, 'save_api_ssl_verify' ) );
         }
 
         // Page: ManageSites.
@@ -151,7 +154,19 @@ class MainWP_Post_Extension_Handler extends MainWP_Post_Base_Handler { // phpcs:
      * Method invalidate_warm_cache()
      */
     public function invalidate_warm_cache() {
-        MainWP_Cache_Warm_Helper::invalidate_manage_pages( array( 'Extensions' )  );
+        MainWP_Cache_Warm_Helper::invalidate_manage_pages( array( 'Extensions' ) );
+    }
+
+    /**
+     * Clear persisted MainWP.com license state.
+     *
+     * @return void
+     */
+    private function clear_saved_extensions_api_login_state() {
+        MainWP_Keys_Manager::instance()->update_key_value( 'mainwp_extensions_master_api_key', false );
+        MainWP_Utility::update_option( 'mainwp_extensions_api_save_login', '' );
+        MainWP_Utility::update_option( 'mainwp_extensions_plan_info', '' );
+        $this->invalidate_warm_cache();
     }
 
     /**
@@ -263,7 +278,8 @@ class MainWP_Post_Extension_Handler extends MainWP_Post_Base_Handler { // phpcs:
         $api_key = isset( $_POST['api_key'] ) ? trim( wp_unslash( $_POST['api_key'] ) ) : false; // phpcs:ignore WordPress.Security.NonceVerification,WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 
         if ( '' === $api_key && false !== $api_key ) {
-            MainWP_Keys_Manager::instance()->update_key_value( 'mainwp_extensions_master_api_key', false );
+            $this->clear_saved_extensions_api_login_state();
+            die( wp_json_encode( array( 'saved' => 1 ) ) );
         }
 
         if ( empty( $api_key ) ) {
@@ -291,20 +307,26 @@ class MainWP_Post_Extension_Handler extends MainWP_Post_Base_Handler { // phpcs:
                     if ( empty( $api_key ) && isset( $result['master_api_key'] ) ) {
                         $api_key = $result['master_api_key'];
                     }
-                    MainWP_Keys_Manager::instance()->update_key_value( 'mainwp_extensions_master_api_key', $api_key );
+
+                    $stored_key = MainWP_Keys_Manager::instance()->update_key_value( 'mainwp_extensions_master_api_key', $api_key );
+                    if ( ! $stored_key ) {
+                        $this->clear_saved_extensions_api_login_state();
+                        $return['error'] = esc_html__( 'License verified, but MainWP could not securely store the key. Please verify that MainWP can write to wp-content/uploads/mainwp/pk.', 'mainwp' );
+                        die( wp_json_encode( $return ) );
+                    }
+
                     MainWP_Utility::update_option( 'mainwp_extensions_api_save_login', true );
                     $plan_info = isset( $result['plan_info'] ) ? wp_json_encode( $result['plan_info'] ) : '';
                     MainWP_Utility::update_option( 'mainwp_extensions_plan_info', $plan_info );
+                    $this->invalidate_warm_cache();
+                } else {
+                    $this->clear_saved_extensions_api_login_state();
                 }
+
                 $return['result'] = 'SUCCESS';
             } elseif ( isset( $result['error'] ) ) {
                 $return['error'] = $result['error'];
             }
-        }
-
-        if ( ! $save_login ) {
-            MainWP_Utility::update_option( 'mainwp_extensions_api_save_login', '' );
-            MainWP_Utility::update_option( 'mainwp_extensions_plan_info', '' );
         }
 
         die( wp_json_encode( $return ) );
